@@ -26,7 +26,7 @@ In the newest FaceChain-FACT (Face Adapter with deCoupled Training) version, wit
 You can quickly experience and invoke our TransFace model on the [ModelScope](https://modelscope.cn/models/damo/cv_vit_face-recognition/summary).
 
 * Quickly utilize our model as a feature extractor to extract facial features from the input image.
-```
+```python
 # Usage: Input aligned facial images (112x112) to obtain a 512-dimensional facial feature vector.
 # For convenience, the model integrates the RetinaFace model for face detection and keypoint estimation.
 # Provide two images as input, and for each image, the model will independently perform face detection,
@@ -48,23 +48,30 @@ print(f'Face cosine similarity={sim:.3f}, img1:{img1}  img2:{img2}')
 ```
 
 ## Requirements
-* Install Pytorch (torch>=1.9.0)
-* ```pip install -r requirement.txt```
- 
+```bash
+source .venv/bin/activate
+uv sync
+```
+
 ## Datasets
 You can download the training datasets, including MS1MV2 and Glint360K:
 * MS1MV2: [Google Drive](https://drive.google.com/file/d/1SXS4-Am3bsKSK615qbYdbA_FMVh3sAvR/view)
 * Glint360K: [Baidu](https://pan.baidu.com/share/init?surl=GsYqTTt7_Dn8BfxxsLFN0w) (code=:o3az)
 
 You can download the test dataset IJB-C as follows:
-* IJB-C: [Google Drive](https://drive.google.com/file/d/1aC4zf2Bn0xCVH_ZtEuQipR2JvRb1bf8o/view) 
+* IJB-C: [Google Drive](https://drive.google.com/file/d/1aC4zf2Bn0xCVH_ZtEuQipR2JvRb1bf8o/view)
 
 ## How to Train Models
 1. You need to modify the path of training data in every configuration file in folder configs.
 
 2. To run on a machine with 8 GPUs:
 ```
-python -m torch.distributed.launch --nproc_per_node=8 --nnodes=1 --node_rank=0 --master_addr="127.0.0.1" --master_port=12581 train.py 
+python -m torch.distributed.launch \
+--nproc_per_node=8 \
+--nnodes=1 \
+--node_rank=0 \
+--master_addr="127.0.0.1" \
+--master_port=12581 train.py
 ```
 
 ## How to Test Models
@@ -72,10 +79,13 @@ python -m torch.distributed.launch --nproc_per_node=8 --nnodes=1 --node_rank=0 -
 
 2. Run:
 ```
-python eval_ijbc.py --model-prefix work_dirs/glint360k_vit_s/model.pt --result-dir work_dirs/glint360k_vit_s --network vit_s_dp005_mask_0 > ijbc_glint360k_vit_s.log 2>&1 &
+python eval_ijbc.py \
+--model-prefix work_dirs/glint360k_vit_s/model.pt \
+--result-dir work_dirs/glint360k_vit_s \
+--network vit_s_dp005_mask_0 > ijbc_glint360k_vit_s.log 2>&1 &
 ```
 
-## TransFace Pretrained Models 
+## TransFace Pretrained Models
 
 You can download the TransFace models reported in our paper as follows:
 

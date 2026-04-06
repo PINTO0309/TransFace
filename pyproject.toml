@@ -1,0 +1,14 @@
+[project]
+name = "transface"
+version = "0.1.0"
+description = "Calibrating Transformer Training for Face Recognition from a Data-Centric Perspective"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "easydict==1.13",
+    "onnx==1.21.0",
+    "onnxruntime-gpu==1.24.4",
+    "onnxscript==0.6.2",
+    "torch==2.11.0",
+    "torchvision==0.26.0",
+]
