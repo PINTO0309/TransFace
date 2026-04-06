@@ -3,3 +3,4 @@
 *.tar
 *.zip
 *.onnx
+__pycache__/

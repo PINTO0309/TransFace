@@ -101,6 +101,17 @@ You can download the TransFace models reported in our paper as follows:
 | Glint360K | [TransFace-B](https://drive.google.com/file/d/13IezvOo5GvtGVsRap2s5RVqtIl1y0ke5/view?usp=share_link) | 88.64 | 96.18 | 97.45 | 98.17 | 98.66 | 99.23 |
 | Glint360K | [TransFace-L](https://drive.google.com/file/d/1jXL_tidh9KqAS6MgeinIk2UNWmEaxfb0/view?usp=share_link) | 89.71 | 96.29 | 97.61 | 98.26 | 98.64 | 99.19 |
 
+The backbone corresponding to each weight file under `weights/` is as follows:
+
+| Weight File | Backbone (`--network`) |
+| ------ | ------ |
+| `weights/ms1mv2_model_TransFace_S.pt` | `vit_s_dp005_mask_0` |
+| `weights/ms1mv2_model_TransFace_B.pt` | `vit_b_dp005_mask_005` |
+| `weights/ms1mv2_model_TransFace_L.pt` | `vit_l_dp005_mask_005` |
+| `weights/glint360k_model_TransFace_S.pt` | `vit_s_dp005_mask_0` |
+| `weights/glint360k_model_TransFace_B.pt` | `vit_b_dp005_mask_005` |
+| `weights/glint360k_model_TransFace_L.pt` | `vit_l_dp005_mask_005` |
+
 You can test the accuracy of these model: (e.g. Glint360K TransFace-L)
 ```bash
 python eval_ijbc.py \
@@ -123,4 +134,3 @@ python eval_ijbc.py \
 
 ## Acknowledgments
 We thank Insighface for the excellent [code base](https://github.com/deepinsight/insightface/tree/master/recognition/arcface_torch).
-
