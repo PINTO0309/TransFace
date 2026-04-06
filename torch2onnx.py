@@ -24,7 +24,7 @@ def convert_onnx(net, path_module, output, opset=11, simplify=False):
         assert check, "Simplified ONNX model could not be validated"
     onnx.save(model, output)
 
-    
+
 if __name__ == '__main__':
     import os
     import argparse

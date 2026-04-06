@@ -181,8 +181,7 @@ def main(args):
 
     start = timeit.default_timer()
     p1, p2, label = read_template_pair_list(
-        os.path.join('%s/meta' % args.image_path,
-                     '%s_template_pair_label.txt' % args.target.lower()))
+        os.path.join('%s/meta' % args.image_path, '%s_template_pair_label.txt' % args.target.lower()))
     stop = timeit.default_timer()
     print('Time: %.2f s. ' % (stop - start))
 
@@ -265,7 +264,7 @@ if __name__ == '__main__':
     # general
     #parser.add_argument('--model-root', default='', help='path to load model.')
     #parser.add_argument('--image-path', default='/train_tmp/IJB_release/IJBC', type=str, help='')
-    
+
     parser.add_argument('--model-root', default='work_dirs/ms1mv2_vit_s/model.onnx', help='path to load model.')
     parser.add_argument('--image-path', default='/mnt/workspace/ijb/IJBC', type=str, help='')
     parser.add_argument('--target', default='IJBC', type=str, help='target, set to IJBC or IJBB')

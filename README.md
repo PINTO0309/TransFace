@@ -65,7 +65,7 @@ You can download the test dataset IJB-C as follows:
 1. You need to modify the path of training data in every configuration file in folder configs.
 
 2. To run on a machine with 8 GPUs:
-```
+```bash
 python -m torch.distributed.launch \
 --nproc_per_node=8 \
 --nnodes=1 \
@@ -78,7 +78,7 @@ python -m torch.distributed.launch \
 1. You need to modify the path of IJB-C dataset in eval_ijbc.py.
 
 2. Run:
-```
+```bash
 python eval_ijbc.py \
 --model-prefix work_dirs/glint360k_vit_s/model.pt \
 --result-dir work_dirs/glint360k_vit_s \
@@ -102,8 +102,11 @@ You can download the TransFace models reported in our paper as follows:
 | Glint360K | [TransFace-L](https://drive.google.com/file/d/1jXL_tidh9KqAS6MgeinIk2UNWmEaxfb0/view?usp=share_link) | 89.71 | 96.29 | 97.61 | 98.26 | 98.64 | 99.19 |
 
 You can test the accuracy of these model: (e.g. Glint360K TransFace-L)
-```
-python eval_ijbc.py --model-prefix work_dirs/glint360k_vit_l/glint360k_model_TransFace_L.pt --result-dir work_dirs/glint360k_vit_l --network vit_l_dp005_mask_005 > ijbc_glint360k_vit_l.log 2>&1 &
+```bash
+python eval_ijbc.py \
+--model-prefix work_dirs/glint360k_vit_l/glint360k_model_TransFace_L.pt \
+--result-dir work_dirs/glint360k_vit_l \
+--network vit_l_dp005_mask_005 > ijbc_glint360k_vit_l.log 2>&1 &
 ```
 
 ## Citation
