@@ -120,6 +120,15 @@ python eval_ijbc.py \
 --network vit_l_dp005_mask_005 > ijbc_glint360k_vit_l.log 2>&1 &
 ```
 
+## ONNX Export
+
+```bash
+python torch2onnx.py \
+weights/glint360k_model_TransFace_S.pt \
+--output glint360k_model_TransFace_S.onnx \
+--network vit_s_dp005_mask_0
+```
+
 ## Citation
 * If you find it helpful for you, please consider citing our paper 📝 and giving a star ⭐.
 ```
