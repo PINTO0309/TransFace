@@ -123,10 +123,37 @@ python eval_ijbc.py \
 ## ONNX Export
 
 ```bash
+##### MS1MV2
+python torch2onnx.py \
+weights/ms1mv2_model_TransFace_S.pt \
+--output ms1mv2_model_TransFace_S.onnx \
+--network vit_s_dp005_mask_0
+
+python torch2onnx.py \
+weights/ms1mv2_model_TransFace_B.pt \
+--output ms1mv2_model_TransFace_B.onnx \
+--network vit_b_dp005_mask_005
+
+python torch2onnx.py \
+weights/ms1mv2_model_TransFace_L.pt \
+--output ms1mv2_model_TransFace_L.onnx \
+--network vit_l_dp005_mask_005
+
+##### Glint360K
 python torch2onnx.py \
 weights/glint360k_model_TransFace_S.pt \
 --output glint360k_model_TransFace_S.onnx \
 --network vit_s_dp005_mask_0
+
+python torch2onnx.py \
+weights/glint360k_model_TransFace_B.pt \
+--output glint360k_model_TransFace_B.onnx \
+--network vit_b_dp005_mask_005
+
+python torch2onnx.py \
+weights/glint360k_model_TransFace_L.pt \
+--output glint360k_model_TransFace_L.onnx \
+--network vit_l_dp005_mask_005
 ```
 
 ## Citation
