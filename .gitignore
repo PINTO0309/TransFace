@@ -3,4 +3,6 @@
 *.tar
 *.zip
 *.onnx
+*.png
+*.mp4
 __pycache__/
