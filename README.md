@@ -154,6 +154,10 @@ python torch2onnx.py \
 weights/glint360k_model_TransFace_L.pt \
 --output glint360k_model_TransFace_L.onnx \
 --network vit_l_dp005_mask_005
+
+python postprocess_onnx.py \
+glint360k_model_TransFace_L.onnx \
+--output glint360k_model_TransFace_L_refined.onnx
 ```
 
 ## Face crop
