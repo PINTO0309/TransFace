@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import base64
+import mimetypes
 import os
+import re
 import sys
 from argparse import ArgumentParser
+from html import escape
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -20,6 +24,11 @@ LANDMARK5_SRC = np.array(
         [70.7299, 92.2041],
     ],
     dtype=np.float32,
+)
+
+IMAGE_TAG_PATTERN = re.compile(
+    r'<img\b(?P<before>[^>]*)\bsrc=(?P<quote>["\'])(?P<src>.+?)(?P=quote)(?P<after>[^>]*)>',
+    re.IGNORECASE,
 )
 
 
@@ -39,6 +48,15 @@ def load_skimage_transform():
         print('ERROR: scikit-image is required for landmark-based alignment. pip install scikit-image')
         sys.exit(1)
     return trans
+
+
+def load_markdown_renderer():
+    try:
+        from markdown_it import MarkdownIt  # type: ignore
+    except ImportError:
+        print('ERROR: markdown-it-py is required for markdown to HTML conversion. pip install markdown-it-py')
+        sys.exit(1)
+    return MarkdownIt('commonmark').enable('table')
 
 
 def build_providers(ort, execution_provider: str) -> List[str]:
@@ -305,13 +323,223 @@ def write_markdown_results(
     return len(rows)
 
 
+def extract_html_title(markdown_text: str, input_markdown: str) -> str:
+    for line in markdown_text.splitlines():
+        stripped_line = line.strip()
+        if stripped_line.startswith('# '):
+            return stripped_line[2:].strip()
+    return Path(input_markdown).stem
+
+
+def resolve_output_html_path(input_markdown: str, output_html: Optional[str]) -> str:
+    if output_html is not None:
+        return output_html
+    return str(Path(input_markdown).with_suffix('.html'))
+
+
+def build_data_uri(image_path: Path) -> str:
+    mime_type, _ = mimetypes.guess_type(str(image_path))
+    if mime_type is None or not mime_type.startswith('image/'):
+        print(f'ERROR: Failed to determine image MIME type: {image_path}')
+        sys.exit(1)
+
+    encoded = base64.b64encode(image_path.read_bytes()).decode('ascii')
+    return f'data:{mime_type};base64,{encoded}'
+
+
+def embed_html_images(html_text: str, markdown_dir: Path, embedded_images: Dict[str, str]) -> str:
+    def replace_image(match: re.Match[str]) -> str:
+        image_src = match.group('src')
+        if '://' in image_src or image_src.startswith('//') or image_src.startswith('data:'):
+            print(f'ERROR: Unsupported non-local image source in markdown: {image_src}')
+            sys.exit(1)
+
+        image_path = (markdown_dir / image_src).resolve()
+        if not image_path.is_file():
+            print(f'ERROR: Referenced image does not exist: {image_src}')
+            print(f'Resolved path: {image_path}')
+            sys.exit(1)
+
+        embedded_src = embedded_images.get(image_src)
+        if embedded_src is None:
+            embedded_src = build_data_uri(image_path)
+            embedded_images[image_src] = embedded_src
+        return (
+            f'<img{match.group("before")}src={match.group("quote")}{embedded_src}'
+            f'{match.group("quote")}{match.group("after")}>'
+        )
+
+    return IMAGE_TAG_PATTERN.sub(replace_image, html_text)
+
+
+def parse_markdown_table_row(line: str) -> List[str]:
+    stripped_line = line.strip()
+    if not stripped_line.startswith('|') or not stripped_line.endswith('|'):
+        print(f'ERROR: Invalid markdown table row: {line}')
+        sys.exit(1)
+    return [cell.strip() for cell in stripped_line[1:-1].split('|')]
+
+
+def split_markdown_table_sections(lines: List[str]) -> Tuple[List[str], Optional[List[str]], List[str]]:
+    for index in range(len(lines) - 1):
+        if lines[index].strip().startswith('|') and lines[index + 1].strip().startswith('|'):
+            return lines[:index], lines[index:index + 2], lines[index + 2:]
+    return lines, None, []
+
+
+def write_html_document_start(output_file, title: str) -> None:
+    output_file.write(f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{escape(title)}</title>
+  <style>
+    :root {{
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }}
+    body {{
+      margin: 0;
+      background: #f5f7fb;
+      color: #162033;
+    }}
+    main {{
+      box-sizing: border-box;
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 32px 24px 48px;
+    }}
+    h1, h2, h3 {{
+      line-height: 1.2;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      background: #ffffff;
+      font-size: 14px;
+    }}
+    th, td {{
+      border: 1px solid #d7deea;
+      padding: 10px 12px;
+      vertical-align: top;
+      text-align: left;
+    }}
+    th {{
+      background: #eaf0f8;
+    }}
+    code {{
+      background: #eef3fa;
+      border-radius: 4px;
+      padding: 1px 4px;
+    }}
+    img {{
+      display: block;
+      max-width: 112px;
+      height: auto;
+    }}
+  </style>
+</head>
+<body>
+  <main>
+""")
+
+
+def write_html_document_end(output_file) -> None:
+    output_file.write("""  </main>
+</body>
+</html>
+""")
+
+
+def write_markdown_table_html(
+    output_file,
+    table_header_lines: List[str],
+    table_body_lines: List[str],
+    renderer,
+    markdown_dir: Path,
+    embedded_images: Dict[str, str],
+) -> None:
+    header_cells = parse_markdown_table_row(table_header_lines[0])
+    output_file.write('<table>\n<thead>\n<tr>\n')
+    for cell in header_cells:
+        rendered_cell = embed_html_images(renderer.renderInline(cell).strip(), markdown_dir, embedded_images)
+        output_file.write(f'<th>{rendered_cell}</th>\n')
+    output_file.write('</tr>\n</thead>\n<tbody>\n')
+
+    for line in table_body_lines:
+        stripped_line = line.strip()
+        if not stripped_line:
+            continue
+        cells = parse_markdown_table_row(line)
+        output_file.write('<tr>\n')
+        for cell in cells:
+            rendered_cell = embed_html_images(renderer.renderInline(cell).strip(), markdown_dir, embedded_images)
+            output_file.write(f'<td>{rendered_cell}</td>\n')
+        output_file.write('</tr>\n')
+    output_file.write('</tbody>\n</table>\n')
+
+
+def convert_markdown_to_html(input_markdown: str, output_html: Optional[str]) -> str:
+    input_path = Path(input_markdown)
+    if not input_path.is_file():
+        print(f'ERROR: Input markdown does not exist: {input_markdown}')
+        sys.exit(1)
+
+    output_path = Path(resolve_output_html_path(input_markdown, output_html))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    markdown_text = input_path.read_text(encoding='utf-8')
+    title = extract_html_title(markdown_text, input_markdown)
+    renderer = load_markdown_renderer()
+    markdown_dir = input_path.resolve().parent
+    embedded_images: Dict[str, str] = {}
+    lines = markdown_text.splitlines()
+    preamble_lines, table_header_lines, table_body_lines = split_markdown_table_sections(lines)
+
+    with output_path.open('w', encoding='utf-8') as output_file:
+        write_html_document_start(output_file, title)
+
+        preamble_markdown = '\n'.join(preamble_lines).strip()
+        if preamble_markdown:
+            rendered_preamble = renderer.render(preamble_markdown + '\n')
+            output_file.write(embed_html_images(rendered_preamble, markdown_dir, embedded_images))
+
+        if table_header_lines is not None:
+            write_markdown_table_html(
+                output_file=output_file,
+                table_header_lines=table_header_lines,
+                table_body_lines=table_body_lines,
+                renderer=renderer,
+                markdown_dir=markdown_dir,
+                embedded_images=embedded_images,
+            )
+
+        write_html_document_end(output_file)
+
+    return str(output_path)
+
+
 def main():
     parser = ArgumentParser()
     parser.add_argument(
         '--model',
         type=str,
-        required=True,
+        default=None,
         help='ONNX model path for TransFace.',
+    )
+    parser.add_argument(
+        '--input_markdown',
+        type=str,
+        default=None,
+        help='Path to an existing markdown results file to convert into a self-contained HTML file.',
+    )
+    parser.add_argument(
+        '--output_html',
+        type=str,
+        default=None,
+        help='Output HTML path for markdown conversion mode. Defaults to the input markdown path with an .html suffix.',
     )
     parser.add_argument(
         '--image1',
@@ -351,6 +579,24 @@ def main():
         help='Execution provider for ONNXRuntime.',
     )
     args = parser.parse_args()
+
+    inference_args = [args.model, args.image1, args.image2, args.images_dir]
+    if args.input_markdown is not None:
+        if any(value is not None for value in inference_args):
+            print('ERROR: --input_markdown cannot be combined with inference arguments.')
+            sys.exit(1)
+        output_html = convert_markdown_to_html(args.input_markdown, args.output_html)
+        print(f'Input markdown: {args.input_markdown}')
+        print(f'HTML output: {output_html}')
+        return
+
+    if args.output_html is not None:
+        print('ERROR: --output_html requires --input_markdown.')
+        sys.exit(1)
+
+    if args.model is None:
+        print('ERROR: --model is required unless --input_markdown is specified.')
+        sys.exit(1)
 
     if args.images_dir is not None and (args.image1 is not None or args.image2 is not None):
         print('ERROR: Specify either --images_dir or both --image1 and --image2, not both modes together.')

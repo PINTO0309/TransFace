@@ -192,6 +192,17 @@ python scripts/demo_transface_onnx_cosine_similarity.py \
 --execution_provider cpu
 ```
 
+## Convert Markdown results to a self-contained HTML file
+
+```bash
+python scripts/demo_transface_onnx_cosine_similarity.py \
+--input_markdown images_out/results_l.md
+
+python scripts/demo_transface_onnx_cosine_similarity.py \
+--input_markdown images_out/results_l.md \
+--output_html images_out/results_l.html
+```
+
 ## Citation
 * If you find it helpful for you, please consider citing our paper 📝 and giving a star ⭐.
 ```
