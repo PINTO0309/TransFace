@@ -21,6 +21,8 @@ class PostprocessError(RuntimeError):
 @dataclass(frozen=True)
 class PostprocessStats:
     folded_bn_count: int
+    patched_reshape_count: int
+    cleared_value_info_count: int
     updated_batch_axis_count: int
     original_output_name: str
     final_output_name: str
@@ -126,6 +128,40 @@ def _update_batch_dim_names(model: onnx.ModelProto, batch_dim_name: str) -> int:
         updated_names.add(value_info.name)
 
     return len(updated_names)
+
+
+def _patch_fixed_batch_reshape_initializers(model: onnx.ModelProto) -> int:
+    initializer_map = {initializer.name: initializer for initializer in model.graph.initializer}
+    patched_count = 0
+
+    for node in model.graph.node:
+        if node.op_type != "Reshape" or len(node.input) != 2:
+            continue
+
+        shape_initializer = initializer_map.get(node.input[1])
+        if shape_initializer is None:
+            continue
+
+        shape_value = numpy_helper.to_array(shape_initializer)
+        if shape_value.ndim != 1 or shape_value.size != 3:
+            continue
+        if int(shape_value[0]) != 1 or int(shape_value[2]) != -1:
+            continue
+
+        patched_shape = shape_value.copy()
+        patched_shape[0] = 0
+        shape_initializer.CopyFrom(
+            numpy_helper.from_array(patched_shape.astype(shape_value.dtype, copy=False), name=shape_initializer.name)
+        )
+        patched_count += 1
+
+    return patched_count
+
+
+def _clear_value_infos(model: onnx.ModelProto) -> int:
+    cleared_count = len(model.graph.value_info)
+    del model.graph.value_info[:]
+    return cleared_count
 
 
 def _validate_fold_shapes(
@@ -257,9 +293,11 @@ def process_model(
         raise PostprocessError(f"Expected exactly 1 model output, but got {len(model.graph.output)}")
 
     model, folded_bn_count = fold_batch_norms_after_matmul(model)
+    patched_reshape_count = _patch_fixed_batch_reshape_initializers(model)
 
     original_output_name = model.graph.output[0].name
     _rename_tensor(model, original_output_name, output_name)
+    cleared_value_info_count = _clear_value_infos(model)
 
     try:
         model = SymbolicShapeInference.infer_shapes(model, auto_merge=True)
@@ -276,6 +314,8 @@ def process_model(
 
     return PostprocessStats(
         folded_bn_count=folded_bn_count,
+        patched_reshape_count=patched_reshape_count,
+        cleared_value_info_count=cleared_value_info_count,
         updated_batch_axis_count=updated_batch_axis_count,
         original_output_name=original_output_name,
         final_output_name=output_name,
@@ -313,6 +353,8 @@ def main() -> int:
         return 1
 
     print(f"Folded BatchNormalization nodes: {stats.folded_bn_count}")
+    print(f"Patched fixed-batch Reshape nodes: {stats.patched_reshape_count}")
+    print(f"Cleared stale value_info entries: {stats.cleared_value_info_count}")
     print(f'Updated batch axis tensors: {stats.updated_batch_axis_count}')
     print(f'Output name: "{stats.original_output_name}" -> "{stats.final_output_name}"')
     return 0

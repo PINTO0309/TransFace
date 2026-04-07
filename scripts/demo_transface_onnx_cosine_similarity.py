@@ -190,6 +190,18 @@ def list_image_files(dir_path: str) -> List[str]:
     return sorted(str(file) for file in image_files)
 
 
+def is_dynamic_dim(dim: object) -> bool:
+    return dim is None or isinstance(dim, str)
+
+
+def choose_batch_size(input_shape: List[object], output_shape: List[object]) -> int:
+    input_batch_dim = input_shape[0] if input_shape else None
+    output_batch_dim = output_shape[0] if output_shape else None
+    if input_batch_dim == 1 or output_batch_dim == 1:
+        return 1
+    return 32
+
+
 def load_session(model_path: str, execution_provider: str):
     if not os.path.isfile(model_path):
         print(f'ERROR: Model file does not exist: {model_path}')
@@ -216,13 +228,29 @@ def load_session(model_path: str, execution_provider: str):
 
     input_tensor = input_meta[0]
     output_tensor = output_meta[0]
-    expected_input_shape = ['N', 3, 112, 112]
-    expected_output_shape = ['N', 512]
-    if input_tensor.shape != expected_input_shape:
-        print(f'ERROR: Unexpected input shape: {input_tensor.shape}, expected: {expected_input_shape}')
+    input_shape = list(input_tensor.shape)
+    output_shape = list(output_tensor.shape)
+    if len(input_shape) != 4 or input_shape[1:] != [3, 112, 112]:
+        print(f'ERROR: Unexpected input shape: {input_tensor.shape}, expected: [N, 3, 112, 112] or [1, 3, 112, 112]')
         sys.exit(1)
-    if output_tensor.shape != expected_output_shape:
-        print(f'ERROR: Unexpected output shape: {output_tensor.shape}, expected: {expected_output_shape}')
+    if len(output_shape) != 2 or output_shape[1] != 512:
+        print(f'ERROR: Unexpected output shape: {output_tensor.shape}, expected: [N, 512] or [1, 512]')
+        sys.exit(1)
+
+    input_batch_dim = input_shape[0]
+    output_batch_dim = output_shape[0]
+    if not is_dynamic_dim(input_batch_dim) and not is_dynamic_dim(output_batch_dim):
+        if int(input_batch_dim) != int(output_batch_dim):
+            print(
+                'ERROR: Input/output batch dimensions do not match: '
+                f'input={input_tensor.shape}, output={output_tensor.shape}'
+            )
+            sys.exit(1)
+
+    batch_size = choose_batch_size(input_shape, output_shape)
+
+    if not is_dynamic_dim(input_batch_dim) and int(input_batch_dim) not in [1, batch_size]:
+        print(f'ERROR: Unsupported fixed input batch dimension: {input_batch_dim}')
         sys.exit(1)
     if input_tensor.type != 'tensor(float)':
         print(f'ERROR: Unexpected input type: {input_tensor.type}, expected: tensor(float)')
@@ -231,16 +259,14 @@ def load_session(model_path: str, execution_provider: str):
         print(f'ERROR: Unexpected output type: {output_tensor.type}, expected: tensor(float)')
         sys.exit(1)
 
-    return session, input_tensor, output_tensor
+    return session, input_tensor, output_tensor, batch_size
 
 
 def run_inference(session, input_tensor, output_tensor, batch: np.ndarray) -> np.ndarray:
     try:
         features = session.run([output_tensor.name], {input_tensor.name: batch})[0]
     except Exception as exc:
-        print('ERROR: ONNX inference failed.')
-        print(exc)
-        sys.exit(1)
+        raise RuntimeError(str(exc)) from exc
     return features
 
 
@@ -269,7 +295,31 @@ def encode_images(
             batch_images.append(batch_image)
             aligned_count += int(aligned)
         batch = np.stack(batch_images, axis=0).astype(np.float32)
-        batch_features = run_inference(session, input_tensor, output_tensor, batch)
+        try:
+            batch_features = run_inference(session, input_tensor, output_tensor, batch)
+        except RuntimeError as exc:
+            if len(batch_paths) == 1:
+                print('ERROR: ONNX inference failed.')
+                print(exc)
+                sys.exit(1)
+
+            batch_features_list = []
+            for batch_image in batch_images:
+                try:
+                    single_batch = np.expand_dims(batch_image, axis=0).astype(np.float32)
+                    single_features = run_inference(session, input_tensor, output_tensor, single_batch)
+                except RuntimeError as single_exc:
+                    print('ERROR: ONNX inference failed.')
+                    print(single_exc)
+                    sys.exit(1)
+                if single_features.shape != (1, 512):
+                    print(
+                        'ERROR: Unexpected feature output shape during single-image fallback: '
+                        f'{single_features.shape}, expected: (1, 512)'
+                    )
+                    sys.exit(1)
+                batch_features_list.append(single_features[0])
+            batch_features = np.stack(batch_features_list, axis=0)
         if batch_features.shape != (len(batch_paths), 512):
             print(
                 'ERROR: Unexpected feature output shape: '
@@ -605,7 +655,7 @@ def main():
         print('ERROR: Specify either --images_dir or both --image1 and --image2.')
         sys.exit(1)
 
-    session, input_tensor, output_tensor = load_session(args.model, args.execution_provider)
+    session, input_tensor, output_tensor, batch_size = load_session(args.model, args.execution_provider)
     landmarks_by_key: Dict[str, np.ndarray] = {}
     landmarks_by_abs: Dict[str, np.ndarray] = {}
     if args.landmarks_file is not None:
@@ -629,6 +679,7 @@ def main():
             landmarks_by_key=landmarks_by_key,
             landmarks_by_abs=landmarks_by_abs,
             images_dir=args.images_dir,
+            batch_size=batch_size,
         )
         normalized_features = l2_normalize(features)
         rows_count = write_markdown_results(
@@ -651,18 +702,15 @@ def main():
         print(f'Markdown output: {args.output_markdown}')
         return
 
-    image1, image1_aligned = load_image_as_input(
-        args.image1,
+    features, aligned_count = encode_images(
+        session,
+        input_tensor,
+        output_tensor,
+        [args.image1, args.image2],
         landmarks_by_key=landmarks_by_key,
         landmarks_by_abs=landmarks_by_abs,
+        batch_size=batch_size,
     )
-    image2, image2_aligned = load_image_as_input(
-        args.image2,
-        landmarks_by_key=landmarks_by_key,
-        landmarks_by_abs=landmarks_by_abs,
-    )
-    batch = np.stack([image1, image2], axis=0).astype(np.float32)
-    features = run_inference(session, input_tensor, output_tensor, batch)
     if features.shape != (2, 512):
         print(f'ERROR: Unexpected feature output shape: {features.shape}, expected: (2, 512)')
         sys.exit(1)
@@ -674,7 +722,7 @@ def main():
     print(f'Image1: {args.image1}')
     print(f'Image2: {args.image2}')
     print(f'Landmarks file: {args.landmarks_file}' if args.landmarks_file is not None else 'Landmarks file: None')
-    print(f'Aligned images: {int(image1_aligned) + int(image2_aligned)}/2')
+    print(f'Aligned images: {aligned_count}/2')
     print(f'Embedding shape: {features.shape}')
     print(f'Cosine similarity: {cosine_similarity:.6f}')
 

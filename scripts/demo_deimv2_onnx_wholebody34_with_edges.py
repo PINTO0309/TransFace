@@ -96,6 +96,15 @@ class Box():
     person_id: int = -1
     track_id: int = -1
 
+@dataclass(frozen=False)
+class FaceCropRecord():
+    face_box: Box
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+    output_path: str
+
 class SimpleSortTracker:
     """Minimal SORT-style tracker based on IoU matching."""
 
@@ -836,7 +845,7 @@ def build_head_crop_base_name(
         video_stem = Path(video).stem if video is not None else 'video'
     return f'{video_stem}__frame_{movie_frame_count:08d}'
 
-def save_head_crops(
+def build_face_crop_records(
     *,
     image: np.ndarray,
     boxes: List[Box],
@@ -845,9 +854,7 @@ def save_head_crops(
     images_dir: Optional[str],
     video: Optional[str],
     movie_frame_count: int,
-) -> None:
-    os.makedirs(output_dir, exist_ok=True)
-
+) -> List[FaceCropRecord]:
     image_height, image_width = image.shape[:2]
     base_name = build_head_crop_base_name(
         file_path=file_path,
@@ -856,7 +863,8 @@ def save_head_crops(
         movie_frame_count=movie_frame_count,
     )
 
-    head_index = 0
+    face_crop_records: List[FaceCropRecord] = []
+    face_index = 0
     for box in boxes:
         if box.classid != 16:
             continue
@@ -868,22 +876,49 @@ def save_head_crops(
         if x2 <= x1 or y2 <= y1:
             continue
 
-        head_crop = image[y1:y2, x1:x2]
+        face_crop_records.append(
+            FaceCropRecord(
+                face_box=box,
+                x1=x1,
+                y1=y1,
+                x2=x2,
+                y2=y2,
+                output_path=os.path.join(
+                    output_dir,
+                    f'{base_name}__face_{face_index:03d}.png',
+                ),
+            )
+        )
+        face_index += 1
+    return face_crop_records
+
+def save_head_crops(
+    *,
+    image: np.ndarray,
+    face_crop_records: List[FaceCropRecord],
+) -> None:
+    if not face_crop_records:
+        return
+
+    os.makedirs(os.path.dirname(face_crop_records[0].output_path) or '.', exist_ok=True)
+
+    for face_crop_record in face_crop_records:
+        head_crop = image[
+            face_crop_record.y1:face_crop_record.y2,
+            face_crop_record.x1:face_crop_record.x2,
+        ]
         if head_crop.size == 0:
             continue
-
-        output_path = os.path.join(
-            output_dir,
-            f'{base_name}__face_{head_index:03d}.png',
-        )
-        cv2.imwrite(output_path, head_crop)
-        head_index += 1
+        cv2.imwrite(face_crop_record.output_path, head_crop)
 
 def _is_center_inside_face(face_box: Box, target_box: Box) -> bool:
     return face_box.x1 <= target_box.cx <= face_box.x2 and face_box.y1 <= target_box.cy <= face_box.y2
 
 def _distance_to_face_center(face_box: Box, target_box: Box) -> float:
     return math.hypot(face_box.cx - target_box.cx, face_box.cy - target_box.cy)
+
+def _clip_to_crop(value: float, crop_start: int, crop_end: int) -> float:
+    return float(min(max(value - crop_start, 0.0), max(crop_end - crop_start, 0)))
 
 def build_ijb_landmark_lines(
     *,
@@ -922,6 +957,53 @@ def build_ijb_landmark_lines(
             f'{float(nose.cx):.6f} {float(nose.cy):.6f} '
             f'{left_mouth_x:.6f} {left_mouth_y:.6f} '
             f'{right_mouth_x:.6f} {right_mouth_y:.6f} '
+            f'{float(face.score):.6f}'
+        )
+    return ijb_lines
+
+def build_face_crop_ijb_landmark_lines(
+    *,
+    boxes: List[Box],
+    face_crop_records: List[FaceCropRecord],
+    relative_from_dir: str,
+) -> List[str]:
+    eyes = [box for box in boxes if box.classid == 17]
+    noses = [box for box in boxes if box.classid == 18]
+    mouths = [box for box in boxes if box.classid == 19]
+
+    ijb_lines: List[str] = []
+    for face_crop_record in face_crop_records:
+        face = face_crop_record.face_box
+        face_eyes = [eye for eye in eyes if _is_center_inside_face(face, eye)]
+        face_noses = [nose for nose in noses if _is_center_inside_face(face, nose)]
+        face_mouths = [mouth for mouth in mouths if _is_center_inside_face(face, mouth)]
+
+        if len(face_eyes) < 2 or len(face_noses) < 1 or len(face_mouths) < 1:
+            continue
+
+        face_eyes = sorted(face_eyes, key=lambda box: box.cx)
+        left_eye = face_eyes[0]
+        right_eye = face_eyes[1]
+        nose = min(face_noses, key=lambda box: _distance_to_face_center(face, box))
+        mouth = min(face_mouths, key=lambda box: _distance_to_face_center(face, box))
+
+        relative_image_path = os.path.relpath(
+            face_crop_record.output_path,
+            start=relative_from_dir,
+        ).replace(os.sep, '/')
+
+        ijb_lines.append(
+            f'{relative_image_path} '
+            f'{_clip_to_crop(float(left_eye.cx), face_crop_record.x1, face_crop_record.x2):.6f} '
+            f'{_clip_to_crop(float(left_eye.cy), face_crop_record.y1, face_crop_record.y2):.6f} '
+            f'{_clip_to_crop(float(right_eye.cx), face_crop_record.x1, face_crop_record.x2):.6f} '
+            f'{_clip_to_crop(float(right_eye.cy), face_crop_record.y1, face_crop_record.y2):.6f} '
+            f'{_clip_to_crop(float(nose.cx), face_crop_record.x1, face_crop_record.x2):.6f} '
+            f'{_clip_to_crop(float(nose.cy), face_crop_record.y1, face_crop_record.y2):.6f} '
+            f'{_clip_to_crop(float(mouth.x1), face_crop_record.x1, face_crop_record.x2):.6f} '
+            f'{_clip_to_crop(float(mouth.cy), face_crop_record.y1, face_crop_record.y2):.6f} '
+            f'{_clip_to_crop(float(mouth.x2), face_crop_record.x1, face_crop_record.x2):.6f} '
+            f'{_clip_to_crop(float(mouth.cy), face_crop_record.y1, face_crop_record.y2):.6f} '
             f'{float(face.score):.6f}'
         )
     return ijb_lines
@@ -1845,8 +1927,9 @@ def main():
         if enable_bone_drawing_mode:
             draw_skeleton(image=debug_image, boxes=boxes, color=(0, 255, 255), max_dist_threshold=300)
 
+        face_crop_records: List[FaceCropRecord] = []
         if face_crop_output_dir is not None:
-            save_head_crops(
+            face_crop_records = build_face_crop_records(
                 image=image,
                 boxes=boxes,
                 output_dir=face_crop_output_dir,
@@ -1855,6 +1938,10 @@ def main():
                 video=video,
                 movie_frame_count=movie_frame_count,
             )
+            save_head_crops(
+                image=image,
+                face_crop_records=face_crop_records,
+            )
 
         if file_paths is not None:
             basename = os.path.basename(file_paths[file_paths_count])
@@ -1862,13 +1949,22 @@ def main():
             cv2.imwrite(f'output/{basename}', debug_image)
 
         if ijb_landmarks_output_path is not None and file_paths is not None:
-            relative_image_path = os.path.relpath(file_paths[file_paths_count], start=images_dir).replace(os.sep, '/')
-            ijb_landmark_lines.extend(
-                build_ijb_landmark_lines(
-                    boxes=boxes,
-                    relative_image_path=relative_image_path,
+            if face_crop_records:
+                ijb_landmark_lines.extend(
+                    build_face_crop_ijb_landmark_lines(
+                        boxes=boxes,
+                        face_crop_records=face_crop_records,
+                        relative_from_dir=os.path.dirname(ijb_landmarks_output_path) or '.',
+                    )
                 )
-            )
+            else:
+                relative_image_path = os.path.relpath(file_paths[file_paths_count], start=images_dir).replace(os.sep, '/')
+                ijb_landmark_lines.extend(
+                    build_ijb_landmark_lines(
+                        boxes=boxes,
+                        relative_image_path=relative_image_path,
+                    )
+                )
 
         if file_paths is not None and output_yolo_format_text:
             os.makedirs('output', exist_ok=True)

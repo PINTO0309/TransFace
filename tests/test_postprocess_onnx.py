@@ -102,6 +102,56 @@ def _build_bn_without_matmul_model() -> onnx.ModelProto:
     return _make_model(graph)
 
 
+def _build_fixed_batch_reshape_model() -> onnx.ModelProto:
+    input_info = helper.make_tensor_value_info("input", TensorProto.FLOAT, ["batch", 1, 2, 2])
+    output_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, ["batch", 4, 2])
+    conv_out = helper.make_tensor_value_info("conv_out", TensorProto.FLOAT, [1, 2, 2, 2])
+    reshape_out = helper.make_tensor_value_info("reshape_out", TensorProto.FLOAT, [1, 2, 4])
+    transpose_out = helper.make_tensor_value_info("transpose_out", TensorProto.FLOAT, [1, 4, 2])
+
+    conv_weight = numpy_helper.from_array(
+        np.array(
+            [
+                [[[1.0]]],
+                [[[0.5]]],
+            ],
+            dtype=np.float32,
+        ),
+        name="conv_weight",
+    )
+    conv_bias = numpy_helper.from_array(np.array([0.0, 0.25], dtype=np.float32), name="conv_bias")
+    reshape_shape = numpy_helper.from_array(np.array([1, 2, -1], dtype=np.int64), name="reshape_shape")
+    pos_embed = numpy_helper.from_array(
+        np.array(
+            [
+                [
+                    [0.0, 0.1],
+                    [0.2, 0.3],
+                    [0.4, 0.5],
+                    [0.6, 0.7],
+                ]
+            ],
+            dtype=np.float32,
+        ),
+        name="pos_embed",
+    )
+
+    conv = helper.make_node("Conv", ["input", "conv_weight", "conv_bias"], ["conv_out"], name="conv")
+    reshape = helper.make_node("Reshape", ["conv_out", "reshape_shape"], ["reshape_out"], name="reshape")
+    transpose = helper.make_node("Transpose", ["reshape_out"], ["transpose_out"], name="transpose", perm=[0, 2, 1])
+    add = helper.make_node("Add", ["transpose_out", "pos_embed"], ["output"], name="add")
+
+    graph = helper.make_graph(
+        [conv, reshape, transpose, add],
+        "fixed-batch-reshape-graph",
+        [input_info],
+        [output_info],
+        [conv_weight, conv_bias, reshape_shape, pos_embed],
+        value_info=[conv_out, reshape_out, transpose_out],
+    )
+    return _make_model(graph)
+
+
 class PostprocessOnnxTests(unittest.TestCase):
     def test_fold_matmul_batchnorm_and_preserve_output(self) -> None:
         input_array = np.array([[0.5, -1.0, 2.0], [1.5, 0.25, -0.75]], dtype=np.float32)
@@ -157,6 +207,34 @@ class PostprocessOnnxTests(unittest.TestCase):
 
         self.assertEqual(stats.folded_bn_count, 0)
         self.assertIn("BatchNormalization", [node.op_type for node in processed.graph.node])
+        self.assertEqual(processed.graph.output[0].name, "feat")
+
+    def test_fixed_batch_reshape_is_patched_for_dynamic_batch(self) -> None:
+        input_array = np.arange(8, dtype=np.float32).reshape((2, 1, 2, 2))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            input_path = tmpdir_path / "fixed_batch.onnx"
+            output_path = tmpdir_path / "fixed_batch_processed.onnx"
+            _save_model(input_path, _build_fixed_batch_reshape_model())
+
+            with self.assertRaises(Exception):
+                _run_model(input_path, {"input": input_array})
+
+            stats = process_model(input_path, output_path)
+            actual = _run_model(output_path, {"input": input_array})
+            processed = onnx.load(str(output_path))
+
+        self.assertEqual(stats.folded_bn_count, 0)
+        self.assertEqual(stats.patched_reshape_count, 1)
+        self.assertGreaterEqual(stats.cleared_value_info_count, 1)
+        self.assertEqual(actual.shape, (2, 4, 2))
+        reshape_initializers = {
+            initializer.name: numpy_helper.to_array(initializer)
+            for initializer in processed.graph.initializer
+        }
+        self.assertTrue(np.array_equal(reshape_initializers["reshape_shape"], np.array([0, 2, -1], dtype=np.int64)))
+        self.assertEqual(len(processed.graph.value_info) > 0, True)
         self.assertEqual(processed.graph.output[0].name, "feat")
 
 
