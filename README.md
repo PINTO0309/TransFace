@@ -115,8 +115,8 @@ The backbone corresponding to each weight file under `weights/` is as follows:
 You can test the accuracy of these model: (e.g. Glint360K TransFace-L)
 ```bash
 python eval_ijbc.py \
---model-prefix work_dirs/glint360k_vit_l/glint360k_model_TransFace_L.pt \
---result-dir work_dirs/glint360k_vit_l \
+--model-prefix weights/glint360k_vit_l/glint360k_model_TransFace_L.pt \
+--result-dir output/glint360k_vit_l \
 --network vit_l_dp005_mask_005 > ijbc_glint360k_vit_l.log 2>&1 &
 ```
 
