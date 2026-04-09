@@ -75,14 +75,26 @@ python -m torch.distributed.launch \
 ```
 
 ## How to Test Models
-1. You need to modify the path of IJB-C dataset in eval_ijbc.py.
+### IJB-C
+`eval_ijbc.py` expects an IJB-C directory containing `meta/` and `loose_crop/`.
 
-2. Run:
 ```bash
 python eval_ijbc.py \
 --model-prefix work_dirs/glint360k_vit_s/model.pt \
+--image-path /path/to/IJBC \
 --result-dir work_dirs/glint360k_vit_s \
 --network vit_s_dp005_mask_0 > ijbc_glint360k_vit_s.log 2>&1 &
+```
+
+### Glint360K WebDataset Validation
+`eval_glint360k.py` reads Glint360K tar shards directly, builds a reusable identity index cache, and reports verification metrics from the same score/label pairs used for ROC: ROC / AUC / TAR@FAR and verification accuracy with its threshold.
+
+```bash
+python eval_glint360k.py \
+--model-prefix work_dirs/glint360k_vit_s/model.pt \
+--data-root /media/lm/NO_NAME/Glint360k \
+--result-dir work_dirs/glint360k_vit_s \
+--network vit_s_dp005_mask_0 > glint360k_val.log 2>&1 &
 ```
 
 ## TransFace Pretrained Models
