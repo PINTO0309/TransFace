@@ -399,7 +399,7 @@ def compute_roc_metrics(scores: np.ndarray, labels: np.ndarray, far_targets: tup
 
     tpr = np.concatenate(([0.0], true_positive / num_positive))
     fpr = np.concatenate(([0.0], false_positive / num_negative))
-    auc_value = float(np.trapz(tpr, fpr))
+    auc_value = float(np.sum((fpr[1:] - fpr[:-1]) * (tpr[1:] + tpr[:-1]) * 0.5))
 
     tar_by_far = {}
     for far in far_targets:

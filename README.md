@@ -260,3 +260,11 @@ python eval_glint360k.py \
 [eval] Accuracy@FAR=1e-01: 90.3030% (threshold=0.065200)
 [eval] TAR@FAR=1e-01: 100.0000%
 ```
+
+### Notes on the Glint360K validation result
+
+- This result is very strong on the constructed Glint360K verification pairs. In particular, `TAR@FAR=1e-05` is `99.9867%` and `TAR@FAR=1e-04` is `99.9967%`, which means the model still accepts almost all genuine pairs even under strict false-accept constraints.
+- `AUC: 100.0000%` should be read as "almost perfectly separated" rather than literally perfect. The value is rounded for display.
+- `Accuracy@FAR` is measured with the threshold fixed by the corresponding FAR target. As the FAR target becomes looser, the threshold decreases, genuine acceptance rises toward `100%`, and overall accuracy can fall because more impostor pairs are accepted. That is why `Accuracy@FAR=1e-01` is much lower than `Accuracy@FAR=1e-04`.
+- These Glint360K numbers should not be compared directly with the IJB-C table above. This validation is built from Glint360K itself, so it is closer to an in-domain sanity check than a cross-dataset generalization benchmark.
+- For practical reading, the most useful summary values are usually `TAR@FAR=1e-05`, `TAR@FAR=1e-04`, `Accuracy@FAR=1e-05`, and `Accuracy@FAR=1e-04`.
