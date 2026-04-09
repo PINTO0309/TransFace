@@ -233,3 +233,30 @@ python scripts/demo_transface_onnx_cosine_similarity.py \
 
 ## Acknowledgments
 We thank Insighface for the excellent [code base](https://github.com/deepinsight/insightface/tree/master/recognition/arcface_torch).
+
+## Additional test
+```
+python eval_glint360k.py \
+--model-prefix weights/glint360k_model_TransFace_L.pt \
+--data-root /media/lm/NO_NAME/Glint360k \
+--result-dir results/glint360k_model_TransFace_L \
+--network vit_l_dp005_mask_005
+
+[eval] eligible identities: 360232
+[eval] evaluated identities: 360232
+[eval] positive pairs: 360232
+[eval] negative pairs: 11527424
+[eval] AUC: 100.0000%
+[eval] Accuracy@FAR=1e-06: 99.9973% (threshold=0.327777)
+[eval] TAR@FAR=1e-06: 99.9134%
+[eval] Accuracy@FAR=1e-05: 99.9986% (threshold=0.258695)
+[eval] TAR@FAR=1e-05: 99.9867%
+[eval] Accuracy@FAR=1e-04: 99.9902% (threshold=0.206560)
+[eval] TAR@FAR=1e-04: 99.9967%
+[eval] Accuracy@FAR=1e-03: 99.9030% (threshold=0.162277)
+[eval] TAR@FAR=1e-03: 99.9992%
+[eval] Accuracy@FAR=1e-02: 99.0303% (threshold=0.118907)
+[eval] TAR@FAR=1e-02: 99.9994%
+[eval] Accuracy@FAR=1e-01: 90.3030% (threshold=0.065200)
+[eval] TAR@FAR=1e-01: 100.0000%
+```
