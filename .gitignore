@@ -9,3 +9,5 @@ __pycache__/
 images*/
 20260407_*/
 *.log
+results/
+weights/
