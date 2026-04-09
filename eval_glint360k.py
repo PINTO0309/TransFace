@@ -9,6 +9,7 @@ import cv2
 import matplotlib
 import numpy as np
 import torch
+from tqdm.auto import tqdm
 
 from backbones import get_model
 
@@ -79,14 +80,27 @@ def build_glint_index(data_root: Path) -> dict[str, object]:
     identity_counts: dict[str, int] = {}
     tar_files = find_tar_files(data_root)
 
-    for tar_index, tar_path in enumerate(tar_files, start=1):
-        print(f"[index] scanning {tar_index}/{len(tar_files)}: {tar_path.name}")
+    tar_progress = tqdm(
+        tar_files,
+        desc="Index shards",
+        dynamic_ncols=True,
+        unit="shard",
+    )
+    for tar_path in tar_progress:
+        tar_progress.set_postfix_str(tar_path.name)
         tar_identity_refs: dict[str, list[tuple[str, str, int, int]]] = {}
         pending_labels: dict[str, str] = {}
         pending_jpegs: dict[str, tuple[str, str, int, int]] = {}
 
         with tarfile.open(tar_path, "r") as tar:
-            for member in tar:
+            member_progress = tqdm(
+                tar,
+                desc=f"Index {tar_path.name}",
+                dynamic_ncols=True,
+                unit="member",
+                leave=False,
+            )
+            for member in member_progress:
                 if not member.isfile():
                     continue
                 suffix = Path(member.name).suffix.lower()
@@ -115,6 +129,7 @@ def build_glint_index(data_root: Path) -> dict[str, object]:
             refs.sort(key=lambda ref: ref[1])
             identity_to_refs[identity] = _merge_first_two_refs(identity_to_refs.get(identity, []), refs)
             identity_counts[identity] = min(identity_counts.get(identity, 0) + len(refs), 2)
+    tar_progress.close()
 
     eligible_id_list = sorted(
         [identity for identity, count in identity_counts.items() if count >= 2],
@@ -280,13 +295,20 @@ def extract_feature_matrix(
     for ref_index, ref in enumerate(refs):
         refs_by_tar.setdefault(ref[0], []).append((ref_index, ref))
 
+    feature_progress = tqdm(
+        total=len(refs),
+        desc="Extract features",
+        dynamic_ncols=True,
+        unit="img",
+    )
     for tar_name in sorted(refs_by_tar):
         tar_path = data_root / tar_name
         tar_refs = sorted(refs_by_tar[tar_name], key=lambda item: item[1][2])
-        print(f"[feature] {tar_name}: {len(tar_refs)} selected images")
+        feature_progress.set_postfix_str(tar_name)
         with tar_path.open("rb") as handle:
             for ref_index, ref in tar_refs:
                 image = _decode_from_handle(handle, ref)
+                feature_progress.update(1)
                 if image is None:
                     invalid_images += 1
                     continue
@@ -298,6 +320,7 @@ def extract_feature_matrix(
                     flush_batch()
 
     flush_batch()
+    feature_progress.close()
 
     if features is None:
         features = np.zeros((num_refs, 0), dtype=np.float32)
@@ -335,8 +358,16 @@ def compute_scores(
 
     cursor = num_identities
     offsets = np.arange(1, actual_negatives + 1, dtype=np.int64)
-    for start in range(0, num_identities, chunk_size):
+    chunk_starts = range(0, num_identities, chunk_size)
+    score_progress = tqdm(
+        chunk_starts,
+        desc="Compute negative scores",
+        dynamic_ncols=True,
+        unit="chunk",
+    )
+    for start in score_progress:
         end = min(start + chunk_size, num_identities)
+        score_progress.set_postfix_str(f"{start}:{end}")
         probe_chunk = probe_features[start:end]
         chunk_base = np.arange(start, end, dtype=np.int64)[:, None]
         chunk_indices = (chunk_base + offsets[None, :]) % num_identities
@@ -349,6 +380,7 @@ def compute_scores(
         scores[cursor:next_cursor] = negative_scores
         labels[cursor:next_cursor] = 0
         cursor = next_cursor
+    score_progress.close()
 
     return scores, labels
 
