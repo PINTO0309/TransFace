@@ -87,7 +87,7 @@ python eval_ijbc.py \
 ```
 
 ### Glint360K WebDataset Validation
-`eval_glint360k.py` reads Glint360K tar shards directly, builds a reusable identity index cache, and reports verification metrics from the same score/label pairs used for ROC: ROC / AUC / TAR@FAR and verification accuracy with its threshold.
+`eval_glint360k.py` reads Glint360K tar shards directly, builds a reusable identity index cache, and reports verification metrics from the same score/label pairs used for ROC: ROC / AUC / TAR@FAR and accuracy at the same fixed FAR thresholds.
 
 ```bash
 python eval_glint360k.py \

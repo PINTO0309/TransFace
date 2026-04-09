@@ -113,14 +113,14 @@ class EvalGlint360kTests(unittest.TestCase):
         self.assertEqual(fpr[0], 0.0)
         self.assertEqual(tpr[0], 0.0)
 
-    def test_compute_verification_accuracy(self) -> None:
+    def test_compute_accuracy_at_far(self) -> None:
         scores = np.array([0.95, 0.9, 0.1, 0.05], dtype=np.float32)
         labels = np.array([1, 1, 0, 0], dtype=np.uint8)
-        accuracy, threshold = eval_glint360k.compute_verification_accuracy(scores, labels)
+        accuracy_by_far, threshold_by_far = eval_glint360k.compute_accuracy_at_far(scores, labels, far_targets=(0.5,))
 
-        self.assertAlmostEqual(accuracy, 1.0)
-        self.assertGreaterEqual(threshold, 0.9 - 1e-6)
-        self.assertLessEqual(threshold, 0.95 + 1e-6)
+        self.assertAlmostEqual(accuracy_by_far["0.5"], 0.75)
+        self.assertGreaterEqual(threshold_by_far["0.5"], 0.1 - 1e-6)
+        self.assertLessEqual(threshold_by_far["0.5"], 0.1 + 1e-6)
 
     def test_evaluate_glint360k_writes_outputs_with_fake_features(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -164,7 +164,8 @@ class EvalGlint360kTests(unittest.TestCase):
         self.assertEqual(summary["num_evaluated_identities"], 2)
         self.assertEqual(saved_summary["num_positive_pairs"], 2)
         self.assertEqual(saved_summary["num_negative_pairs"], 2)
-        self.assertAlmostEqual(saved_summary["verification_accuracy"], 1.0)
+        self.assertAlmostEqual(saved_summary["accuracy_at_far"]["0.1"], 1.0)
+        self.assertIn("threshold_at_far", saved_summary)
         self.assertEqual(saved_scores.shape, (4,))
         self.assertEqual(saved_labels.tolist(), [1, 1, 0, 0])
 

@@ -378,7 +378,11 @@ def compute_roc_metrics(scores: np.ndarray, labels: np.ndarray, far_targets: tup
     return tar_by_far, fpr, tpr, auc_value
 
 
-def compute_verification_accuracy(scores: np.ndarray, labels: np.ndarray) -> tuple[float, float]:
+def compute_accuracy_at_far(
+    scores: np.ndarray,
+    labels: np.ndarray,
+    far_targets: tuple[float, ...] = FAR_TARGETS,
+) -> tuple[dict[str, float], dict[str, float]]:
     labels_bool = labels.astype(bool)
     total_count = int(labels_bool.shape[0])
     if total_count == 0:
@@ -392,9 +396,6 @@ def compute_verification_accuracy(scores: np.ndarray, labels: np.ndarray) -> tup
     true_positive = np.cumsum(sorted_labels, dtype=np.int64)
     false_positive = np.cumsum(~sorted_labels, dtype=np.int64)
 
-    best_accuracy = num_negative / total_count
-    best_threshold = float(np.nextafter(sorted_scores[0], np.inf))
-
     group_end_mask = np.ones(sorted_scores.shape[0], dtype=bool)
     group_end_mask[:-1] = sorted_scores[:-1] != sorted_scores[1:]
     group_end_indices = np.flatnonzero(group_end_mask)
@@ -402,13 +403,23 @@ def compute_verification_accuracy(scores: np.ndarray, labels: np.ndarray) -> tup
     tp_at_threshold = true_positive[group_end_indices]
     fp_at_threshold = false_positive[group_end_indices]
     accuracy_at_threshold = (tp_at_threshold + (num_negative - fp_at_threshold)) / total_count
-    best_index = int(np.argmax(accuracy_at_threshold))
-    if float(accuracy_at_threshold[best_index]) >= best_accuracy:
-        score_index = group_end_indices[best_index]
-        best_accuracy = float(accuracy_at_threshold[best_index])
-        best_threshold = float(sorted_scores[score_index])
+    fpr_at_threshold = fp_at_threshold / num_negative
+    threshold_candidates = sorted_scores[group_end_indices]
 
-    return best_accuracy, best_threshold
+    # Threshold above the maximum score predicts everything as negative and gives FAR=0.
+    fpr_candidates = np.concatenate(([0.0], fpr_at_threshold))
+    accuracy_candidates = np.concatenate(([num_negative / total_count], accuracy_at_threshold))
+    threshold_candidates = np.concatenate(([np.nextafter(sorted_scores[0], np.inf)], threshold_candidates))
+
+    accuracy_by_far = {}
+    threshold_by_far = {}
+    for far in far_targets:
+        index = np.searchsorted(fpr_candidates, far, side="right") - 1
+        index = max(index, 0)
+        accuracy_by_far[str(far)] = float(accuracy_candidates[index])
+        threshold_by_far[str(far)] = float(threshold_candidates[index])
+
+    return accuracy_by_far, threshold_by_far
 
 
 def save_roc_plot(output_path: Path, fpr: np.ndarray, tpr: np.ndarray, auc_value: float) -> None:
@@ -480,7 +491,7 @@ def evaluate_glint360k(
         args.chunk_size,
     )
     tar_by_far, fpr, tpr, auc_value = compute_roc_metrics(scores, labels)
-    verification_accuracy, verification_threshold = compute_verification_accuracy(scores, labels)
+    accuracy_by_far, threshold_by_far = compute_accuracy_at_far(scores, labels)
 
     scores_path = output_dir / "scores.npy"
     labels_path = output_dir / "labels.npy"
@@ -508,8 +519,8 @@ def evaluate_glint360k(
         "num_negative_pairs": int((labels == 0).sum()),
         "auc": auc_value,
         "tar_at_far": tar_by_far,
-        "verification_accuracy": verification_accuracy,
-        "verification_accuracy_threshold": verification_threshold,
+        "accuracy_at_far": accuracy_by_far,
+        "threshold_at_far": threshold_by_far,
         "actual_num_negatives_per_id": int(min(args.num_negatives_per_id, len(filtered_ids) - 1)),
     }
     with summary_path.open("w", encoding="utf-8") as handle:
@@ -520,11 +531,11 @@ def evaluate_glint360k(
     print(f"[eval] positive pairs: {summary['num_positive_pairs']}")
     print(f"[eval] negative pairs: {summary['num_negative_pairs']}")
     print(f"[eval] AUC: {auc_value * 100:.4f}%")
-    print(
-        f"[eval] Verification Accuracy: {verification_accuracy * 100:.4f}% "
-        f"(threshold={verification_threshold:.6f})"
-    )
     for far in FAR_TARGETS:
+        print(
+            f"[eval] Accuracy@FAR={far:.0e}: {accuracy_by_far[str(far)] * 100:.4f}% "
+            f"(threshold={threshold_by_far[str(far)]:.6f})"
+        )
         print(f"[eval] TAR@FAR={far:.0e}: {tar_by_far[str(far)] * 100:.4f}%")
     return summary
 
