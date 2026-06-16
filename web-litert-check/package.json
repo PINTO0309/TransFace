@@ -1,0 +1,26 @@
+{
+  "name": "transface-litert-check",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.5.2",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "tsc --noEmit && vite build && tsc -p tsconfig.electron.json",
+    "start": "node scripts/start.mjs"
+  },
+  "dependencies": {
+    "@litertjs/core": "2.5.2",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "25.9.2",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "electron": "42.3.3",
+    "typescript": "6.0.3",
+    "vite": "8.0.16"
+  }
+}
