@@ -5,9 +5,15 @@
 *.onnx
 *.png
 *.mp4
+*.tflite
 __pycache__/
 images*/
 20260407_*/
 *.log
 results/
 weights/
+
+# LiteRT.js / Electron local artifacts
+web-litert-check/node_modules/
+web-litert-check/dist-renderer/
+web-litert-check/dist-electron/

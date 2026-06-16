@@ -1,0 +1,5 @@
+node_modules/
+dist-renderer/
+dist-electron/
+public/models/*.tflite
+!public/models/.gitkeep
