@@ -83,6 +83,8 @@ COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm start
 - Logs for explicit exceptions, `window.onerror`, and `unhandledrejection`
 - Warnings for suspicious results, such as an extremely short run time or all-zero output from non-zero input
 
+  <img width="1122" height="973" alt="image" src="https://github.com/user-attachments/assets/ca0f0d02-cae5-4ec2-8aa0-448fac0d9c19" />
+
 ## Execution Layout
 
 The model order is fixed.
