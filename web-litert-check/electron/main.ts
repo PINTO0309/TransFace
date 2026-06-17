@@ -7,6 +7,7 @@ const MODEL_FILES = [
   'glint360k_model_TransFace_L_0001_float32.tflite',
   'glint360k_model_TransFace_L_0002_float32.tflite',
   'glint360k_model_TransFace_L_0003_float32.tflite',
+  'glint360k_model_TransFace_S_float32.tflite',
 ] as const;
 
 const APP_DIR = path.resolve(__dirname, '..');

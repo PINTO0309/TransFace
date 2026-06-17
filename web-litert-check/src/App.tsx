@@ -16,11 +16,26 @@ import { createRoot } from 'react-dom/client';
 
 import './styles.css';
 
-const MODEL_FILES = [
+const TRANSFACE_L_MODEL_FILES = [
   'glint360k_model_TransFace_L_0001_float32.tflite',
   'glint360k_model_TransFace_L_0002_float32.tflite',
   'glint360k_model_TransFace_L_0003_float32.tflite',
 ] as const;
+
+const TRANSFACE_S_MODEL_FILES = ['glint360k_model_TransFace_S_float32.tflite'] as const;
+
+const MODEL_SETS = {
+  'transface-l': {
+    label: 'TransFace-L',
+    files: TRANSFACE_L_MODEL_FILES,
+    runtime: 'split',
+  },
+  'transface-s': {
+    label: 'TransFace-S',
+    files: TRANSFACE_S_MODEL_FILES,
+    runtime: 'single',
+  },
+} as const;
 
 const WEBGPU_COMPILE_DISABLED_MODELS = new Set<string>([
   'glint360k_model_TransFace_L_0003_float32.tflite',
@@ -30,6 +45,7 @@ const LITERT_WASM_ASSET_ROOT = 'transface-wasm://assets/';
 
 type InputMode = 'dummy' | 'image';
 type Backend = 'webgpu' | 'wasm';
+type ModelSetId = keyof typeof MODEL_SETS;
 type StagePreference = 'webgpu-stage12' | 'wasm-stage12';
 type TensorValues = TypedArray;
 
@@ -428,11 +444,14 @@ async function compileModelForStage(
   };
 }
 
-async function compileModels(backend: Backend): Promise<{ models: CompiledModel[]; timings: StageTiming[] }> {
+async function compileModels(
+  modelFiles: readonly string[],
+  backend: Backend,
+): Promise<{ models: CompiledModel[]; timings: StageTiming[] }> {
   const models: CompiledModel[] = [];
   const timings: StageTiming[] = [];
 
-  for (const filename of MODEL_FILES) {
+  for (const filename of modelFiles) {
     const { model, timing } = await compileModelForStage(filename, backend);
     models.push(model);
     timings.push(timing);
@@ -486,6 +505,7 @@ async function runStage(
 }
 
 async function runPipeline(
+  modelFiles: readonly string[],
   backend: Backend,
   inputMode: InputMode,
   imageFile: File | null,
@@ -498,7 +518,7 @@ async function runPipeline(
     onWebGpuInitialized?.(webGpuInitInfo);
   }
 
-  const { models, timings } = await compileModels(backend);
+  const { models, timings } = await compileModels(modelFiles, backend);
   const warnings: string[] = [];
   let currentTensors: Tensor[] = [];
   let finalTensor: Tensor | null = null;
@@ -560,6 +580,7 @@ async function runPipeline(
 }
 
 async function runSplitRuntimePipeline(
+  modelFiles: typeof TRANSFACE_L_MODEL_FILES,
   stage12Backend: Backend,
   inputMode: InputMode,
   imageFile: File | null,
@@ -580,7 +601,7 @@ async function runSplitRuntimePipeline(
 
   const stage12Models: CompiledModel[] = [];
   try {
-    for (const filename of MODEL_FILES.slice(0, 2)) {
+    for (const filename of modelFiles.slice(0, 2)) {
       const { model, timing } = await compileModelForStage(filename, stage12Backend);
       stage12Models.push(model);
       timings.push(timing);
@@ -624,7 +645,7 @@ async function runSplitRuntimePipeline(
   const wasmModels: CompiledModel[] = [];
   try {
     const { model, timing } = await compileModelForStage(
-      MODEL_FILES[2],
+      modelFiles[2],
       'wasm',
       `Executed in a separate non-JSPI WASM runtime after ${stage12Backend.toUpperCase()} Stage 1/2.`,
     );
@@ -706,6 +727,7 @@ function formatStats(stats: readonly TensorStats[]): string {
 }
 
 function App() {
+  const [modelSetId, setModelSetId] = useState<ModelSetId>('transface-l');
   const [inputMode, setInputMode] = useState<InputMode>('dummy');
   const [stagePreference, setStagePreference] = useState<StagePreference>('webgpu-stage12');
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -739,7 +761,28 @@ function App() {
     };
   }, [addLog]);
 
-  const allModelsReady = useMemo(() => models.length === 3 && models.every((model) => model.exists), [models]);
+  const selectedModelSet = MODEL_SETS[modelSetId];
+  const selectedModelStatuses = useMemo<ModelStatus[]>(
+    () =>
+      selectedModelSet.files.map(
+        (filename) => models.find((model) => model.filename === filename) ?? { filename, exists: false, sizeBytes: null },
+      ),
+    [modelSetId, models, selectedModelSet.files],
+  );
+  const allModelsReady = useMemo(
+    () => selectedModelStatuses.length > 0 && selectedModelStatuses.every((model) => model.exists),
+    [selectedModelStatuses],
+  );
+  const backendPreferenceLabel = stagePreference === 'wasm-stage12' ? 'WASM' : 'WebGPU';
+  const backendControlLabel = selectedModelSet.runtime === 'split' ? 'Stage 1/2' : 'Backend';
+  const runtimeDescription =
+    selectedModelSet.runtime === 'split'
+      ? stagePreference === 'wasm-stage12'
+        ? 'WASM split runtime'
+        : 'WebGPU delegate with WASM Stage 3'
+      : stagePreference === 'wasm-stage12'
+        ? 'WASM single-model runtime'
+        : 'WebGPU single-model runtime';
 
   const logWarnings = useCallback(
     (warnings: readonly string[]) => {
@@ -755,12 +798,46 @@ function App() {
     setResult(null);
     addLog(
       'info',
-      `Starting ${inputMode} inference. Stage 1/2 preference: ${stagePreference === 'wasm-stage12' ? 'WASM' : 'WebGPU'}. WebGPU supported: ${isWebGPUSupported() ? 'yes' : 'no'}.`,
+      `Starting ${selectedModelSet.label} ${inputMode} inference. ${backendControlLabel} preference: ${backendPreferenceLabel}. WebGPU supported: ${isWebGPUSupported() ? 'yes' : 'no'}.`,
     );
 
     try {
+      if (selectedModelSet.runtime === 'single') {
+        if (stagePreference === 'wasm-stage12') {
+          const wasmResult = await runPipeline(selectedModelSet.files, 'wasm', inputMode, imageFile);
+          setResult({ ...wasmResult, fallbackUsed: false });
+          logWarnings(wasmResult.warnings);
+          addLog('info', `WASM inference completed in ${formatMs(wasmResult.totalMs)}.`);
+          return;
+        }
+
+        let webgpuError: unknown = null;
+        try {
+          const webgpuResult = await runPipeline(selectedModelSet.files, 'webgpu', inputMode, imageFile, (info) => {
+            addLog('info', `WebGPU initialized: ${JSON.stringify(info)}`);
+          });
+          setResult({ ...webgpuResult, fallbackUsed: false });
+          logWarnings(webgpuResult.warnings);
+          addLog('info', `WebGPU inference completed in ${formatMs(webgpuResult.totalMs)}.`);
+          return;
+        } catch (error) {
+          webgpuError = error;
+          addLog('error', `WebGPU pipeline failed; falling back to WASM.\n${formatError(error)}`);
+        }
+
+        try {
+          const wasmResult = await runPipeline(selectedModelSet.files, 'wasm', inputMode, imageFile);
+          setResult({ ...wasmResult, fallbackUsed: true });
+          logWarnings(wasmResult.warnings);
+          addLog('info', `WASM inference completed in ${formatMs(wasmResult.totalMs)}.`);
+        } catch (wasmError) {
+          throw new Error(`WASM fallback failed after WebGPU error.\nWebGPU: ${formatError(webgpuError)}\nWASM: ${formatError(wasmError)}`);
+        }
+        return;
+      }
+
       if (stagePreference === 'wasm-stage12') {
-        const wasmResult = await runSplitRuntimePipeline('wasm', inputMode, imageFile);
+        const wasmResult = await runSplitRuntimePipeline(TRANSFACE_L_MODEL_FILES, 'wasm', inputMode, imageFile);
         setResult({ ...wasmResult, fallbackUsed: false });
         logWarnings(wasmResult.warnings);
         addLog('info', `WASM-preferred inference completed in ${formatMs(wasmResult.totalMs)}.`);
@@ -769,7 +846,7 @@ function App() {
 
       let webgpuError: unknown = null;
       try {
-        const webgpuResult = await runSplitRuntimePipeline('webgpu', inputMode, imageFile, (info) => {
+        const webgpuResult = await runSplitRuntimePipeline(TRANSFACE_L_MODEL_FILES, 'webgpu', inputMode, imageFile, (info) => {
           addLog('info', `WebGPU initialized: ${JSON.stringify(info)}`);
         });
         setResult({ ...webgpuResult, fallbackUsed: false });
@@ -782,7 +859,7 @@ function App() {
       }
 
       try {
-        const wasmResult = await runSplitRuntimePipeline('wasm', inputMode, imageFile);
+        const wasmResult = await runSplitRuntimePipeline(TRANSFACE_L_MODEL_FILES, 'wasm', inputMode, imageFile);
         setResult({ ...wasmResult, fallbackUsed: true });
         logWarnings(wasmResult.warnings);
         addLog('info', `WASM inference completed in ${formatMs(wasmResult.totalMs)}.`);
@@ -794,14 +871,25 @@ function App() {
     } finally {
       setRunning(false);
     }
-  }, [addLog, imageFile, inputMode, logWarnings, stagePreference]);
+  }, [
+    addLog,
+    backendControlLabel,
+    backendPreferenceLabel,
+    imageFile,
+    inputMode,
+    logWarnings,
+    selectedModelSet.files,
+    selectedModelSet.label,
+    selectedModelSet.runtime,
+    stagePreference,
+  ]);
 
   return (
     <main className="app-shell">
       <section className="toolbar">
         <div>
           <h1>TransFace LiteRT Check</h1>
-          <p>LiteRT.js + Electron runtime check for the 3-part TransFace-L model.</p>
+          <p>LiteRT.js + Electron runtime check for TransFace-L and TransFace-S models.</p>
         </div>
         <button type="button" onClick={runCheck} disabled={running || !allModelsReady || (inputMode === 'image' && !imageFile)}>
           {running ? 'Running...' : 'Run'}
@@ -809,6 +897,32 @@ function App() {
       </section>
 
       <section className="panel controls-panel">
+        <div className="control-group">
+          <span className="label">Model</span>
+          <div className="segmented">
+            <button
+              className={modelSetId === 'transface-l' ? 'active' : ''}
+              type="button"
+              onClick={() => {
+                setModelSetId('transface-l');
+                setResult(null);
+              }}
+            >
+              TransFace-L
+            </button>
+            <button
+              className={modelSetId === 'transface-s' ? 'active' : ''}
+              type="button"
+              onClick={() => {
+                setModelSetId('transface-s');
+                setResult(null);
+              }}
+            >
+              TransFace-S
+            </button>
+          </div>
+        </div>
+
         <div className="control-group">
           <span className="label">Input</span>
           <div className="segmented">
@@ -832,7 +946,7 @@ function App() {
         </label>
 
         <div className="control-group">
-          <span className="label">Stage 1/2</span>
+          <span className="label">{backendControlLabel}</span>
           <div className="segmented">
             <button
               className={stagePreference === 'webgpu-stage12' ? 'active' : ''}
@@ -853,7 +967,7 @@ function App() {
 
         <div className="runtime-box">
           <span className="label">Backend</span>
-          <strong>{stagePreference === 'wasm-stage12' ? 'WASM split runtime' : 'WebGPU delegate with WASM Stage 3'}</strong>
+          <strong>{runtimeDescription}</strong>
           <span>{isWebGPUSupported() ? 'WebGPU API detected' : 'WebGPU API not detected'}</span>
         </div>
       </section>
@@ -870,7 +984,7 @@ function App() {
               </tr>
             </thead>
             <tbody>
-              {models.map((model) => (
+              {selectedModelStatuses.map((model) => (
                 <tr key={model.filename}>
                   <td>{model.filename}</td>
                   <td className={model.exists ? 'ok' : 'bad'}>{model.exists ? 'Found' : 'Missing'}</td>

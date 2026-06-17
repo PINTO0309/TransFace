@@ -1,6 +1,6 @@
 # TransFace LiteRT Check
 
-This is a verification-only Electron + LiteRT.js + TypeScript + React app for running the three-part TransFace-L `.tflite` feature extraction model from the browser renderer.
+This is a verification-only Electron + LiteRT.js + TypeScript + React app for running the TransFace-L and TransFace-S `.tflite` feature extraction models from the browser renderer.
 
 ## Requirements
 
@@ -11,12 +11,13 @@ This is a verification-only Electron + LiteRT.js + TypeScript + React app for ru
 
 ## Model Files
 
-Place the following three files under `web-litert-check/public/models/`.
+Place the following files under `web-litert-check/public/models/`.
 
 ```text
 web-litert-check/public/models/glint360k_model_TransFace_L_0001_float32.tflite
 web-litert-check/public/models/glint360k_model_TransFace_L_0002_float32.tflite
 web-litert-check/public/models/glint360k_model_TransFace_L_0003_float32.tflite
+web-litert-check/public/models/glint360k_model_TransFace_S_float32.tflite
 ```
 
 The `.tflite` files are intentionally ignored by git because they are large. Only `public/models/.gitkeep` is tracked.
@@ -72,6 +73,7 @@ COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm start
 
 ## What the App Shows
 
+- Model: TransFace-L / TransFace-S
 - Input mode: dummy / image
 - Stage 1/2 execution preference: WebGPU / WASM
 - WebGPU adapter information
@@ -87,7 +89,7 @@ COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm start
 
 ## Execution Layout
 
-The model order is fixed.
+TransFace-L is executed as a fixed three-stage pipeline.
 
 ```text
 0001 -> 0002 -> 0003
@@ -96,6 +98,14 @@ The model order is fixed.
 When WebGPU is selected, Stage 1/2 are attempted with the WebGPU delegate, and Stage 3 is executed in a separate non-JSPI WASM runtime. Some environments short-circuit Stage 3 when it is run in the same LiteRT runtime after Stage 1/2, so the app materializes the Stage 1/2 outputs as TypedArrays, unloads LiteRT, reloads the WASM runtime, and then runs Stage 3.
 
 When WASM is selected, Stage 1/2 and Stage 3 are also separated across LiteRT runtime instances.
+
+TransFace-S is executed as a single `.tflite` model.
+
+```text
+S
+```
+
+When WebGPU is selected for TransFace-S, the single model is attempted with the WebGPU delegate and falls back to WASM if the WebGPU pipeline fails. When WASM is selected, the single model runs directly in the WASM runtime.
 
 ## Troubleshooting
 
